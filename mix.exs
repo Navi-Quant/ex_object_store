@@ -38,7 +38,11 @@ defmodule ExObjectStore.MixProject do
       {:styler, "~> 0.7", only: [:dev, :test], runtime: false},
       {:mix_test_watch, "~> 1.0", only: [:dev, :test], runtime: false},
       {:postgrex, ">= 0.0.0", only: [:dev, :test]},
-      {:ecto_sql, "~> 3.6"}
+      {:hackney, "~> 1.9"},
+      {:ecto_sql, "~> 3.6"},
+      {:ex_aws, "~> 2.5"},
+      {:ex_aws_s3, "~> 2.4"},
+      {:sweet_xml, "~> 0.7"}
     ]
   end
 end
