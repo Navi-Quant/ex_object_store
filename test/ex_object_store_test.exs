@@ -73,4 +73,23 @@ defmodule ExObjectStoreTest do
       assert ExObjectStore.root_bucket_exists?()
     end
   end
+
+  describe "garbage collector" do
+    setup do
+      ExObjectStore.delete_prefix("")
+    end
+
+    test "deletes objects on interval" do
+      {:ok, _live_object} = ExObjectStore.upload_object("test/folder", "live_object.txt", "contents")
+      {:ok, _garbage_object} = ExObjectStore.upload_object("test/folder", "garbage_object.txt", "contents")
+
+      assert ExObjectStore.stream_prefix() |> Enum.to_list() |> length() == 2
+
+      # start garbage collector
+      start_supervised!({ExObjectStore.GarbageCollector, object_sync: TestSync, interval: 1})
+      :timer.sleep(5)
+
+      assert ExObjectStore.stream_prefix() |> Enum.to_list() |> length() == 1
+    end
+  end
 end
