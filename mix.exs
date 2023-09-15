@@ -24,11 +24,7 @@ defmodule ExObjectStore.MixProject do
   end
 
   defp aliases do
-    [
-      test: ["ecto.create --quiet", "ecto.migrate", "test"],
-      "ecto.setup": ["ecto.create", "ecto.migrate"],
-      "ecto.reset": ["ecto.drop", "ecto.setup"]
-    ]
+    []
   end
 
   # Run "mix help deps" to learn about dependencies.
@@ -37,9 +33,7 @@ defmodule ExObjectStore.MixProject do
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
       {:styler, "~> 0.7", only: [:dev, :test], runtime: false},
       {:mix_test_watch, "~> 1.0", only: [:dev, :test], runtime: false},
-      {:postgrex, ">= 0.0.0", only: [:dev, :test]},
       {:hackney, "~> 1.9"},
-      {:ecto_sql, "~> 3.6"},
       {:ex_aws, "~> 2.5"},
       {:ex_aws_s3, "~> 2.4"},
       {:sweet_xml, "~> 0.7"}

@@ -1,22 +1,12 @@
 defmodule ExObjectStoreTest do
-  use ExObjectStore.RepoCase
+  use ExUnit.Case
 
-  describe "objects" do
-    alias ExObjectStore.Object
+  defmodule TestSync do
+    @moduledoc false
+    @behaviour ExObjectStore.ObjectSync
 
-    test "list_objects/0" do
-      assert [] == ExObjectStore.list_objects()
-    end
-
-    test "create_object/1 with valid data creates a new object" do
-      attrs = %{
-        name: "My Object",
-        key: "my-object"
-      }
-
-      assert {:ok, %Object{} = object} = ExObjectStore.create_object(attrs)
-      assert object.name == "My Object"
-      assert object.key == "my-object"
+    def live_keys(_prefix) do
+      ["test/folder/live_object.txt"]
     end
   end
 
@@ -27,6 +17,12 @@ defmodule ExObjectStoreTest do
 
     test "upload_object/4 returns ok with the key when successful" do
       assert {:ok, "test/test.txt"} = ExObjectStore.upload_object("test", "test.txt", "test")
+    end
+
+    test "presigned_url/2 returns the presigned url for object with key" do
+      {:ok, key} = ExObjectStore.upload_object("folder", "object.txt", "test")
+      {:ok, url} = ExObjectStore.presigned_url(key)
+      assert url =~ "http://localhost:9000/test/folder/object.txt"
     end
 
     test "stream_prefix/1 returns stream of objects matching prefix" do
@@ -42,6 +38,34 @@ defmodule ExObjectStoreTest do
 
       objects = ExObjectStore.stream_prefix("empty/")
       assert Enum.empty?(objects)
+    end
+
+    test "stream_garbage/1 lists all the objects that are unreferenced in local store that are still in s3 with the matching prefix" do
+      {:ok, _object} = ExObjectStore.upload_object("test/folder", "live_object.txt", "contents")
+
+      {:ok, garbage_object} = ExObjectStore.upload_object("test/folder", "garbage_object.txt", "contents")
+      {:ok, other_folder} = ExObjectStore.upload_object("test/other", "other.txt", "contents")
+
+      assert "test" |> ExObjectStore.stream_prefix() |> Enum.to_list() |> length() == 3
+
+      assert [%{key: ^garbage_object}, %{key: ^other_folder}] =
+               "test"
+               |> ExObjectStore.stream_garbage(object_sync: TestSync)
+               |> Enum.to_list()
+
+      assert [%{key: ^garbage_object}] =
+               "test/folder"
+               |> ExObjectStore.stream_garbage(object_sync: TestSync)
+               |> Enum.to_list()
+    end
+
+    test "delete_garbage/1 deletes all the unreferenced objects from s3" do
+      {:ok, live_object} = ExObjectStore.upload_object("test/folder", "live_object.txt", "contents")
+      {:ok, _garbage_object} = ExObjectStore.upload_object("test/folder", "garbage_object.txt", "contents")
+
+      assert "test" |> ExObjectStore.stream_prefix() |> Enum.to_list() |> length() == 2
+      assert :ok == ExObjectStore.delete_garbage("test", object_sync: TestSync)
+      assert [live_object] == "test" |> ExObjectStore.stream_prefix() |> Enum.map(& &1.key)
     end
 
     test "ensure_root_bucket" do

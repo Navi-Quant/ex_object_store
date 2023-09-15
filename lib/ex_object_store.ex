@@ -4,23 +4,10 @@ defmodule ExObjectStore do
   """
 
   alias ExAws.S3
-  alias ExObjectStore.Object
 
   require Logger
 
-  def list_objects do
-    repo().all(Object)
-  end
-
-  def create_object(attrs \\ %{}) do
-    %Object{}
-    |> Object.changeset(attrs)
-    |> repo().insert()
-  end
-
-  defp repo do
-    Application.get_env(:ex_object_store, :repo)
-  end
+  @type object_sync_opt :: {:object_sync, module()}
 
   @doc """
   Upload a file with name to folder with contents. the folder is just some string
@@ -41,6 +28,15 @@ defmodule ExObjectStore do
   defp object_name(folder, file_name), do: folder <> "/" <> file_name
 
   @doc """
+  Return a presigned url for the key
+  """
+  @spec presigned_url(key :: String.t(), opts :: S3.presigned_url_opts()) :: {:ok, binary()} | {:error, binary()}
+  def presigned_url(key, opts \\ []) do
+    config = ExAws.Config.new(:s3)
+    ExAws.S3.presigned_url(config, :get, root_bucket(), key, opts)
+  end
+
+  @doc """
   Return a stream of all the objects matching the prefix
   """
   @spec stream_prefix(prefix :: String.t()) :: Enumerable.t()
@@ -48,6 +44,20 @@ defmodule ExObjectStore do
     root_bucket()
     |> ExAws.S3.list_objects_v2(prefix: prefix)
     |> ExAws.stream!()
+  end
+
+  @doc """
+  Return a stream of all the objects that don't have a live key in the object sync
+  """
+  @spec stream_garbage(prefix :: String.t(), opts :: [object_sync_opt()]) :: Enumerable.t()
+  def stream_garbage(prefix \\ "", opts \\ []) do
+    sync = Keyword.get(opts, :object_sync, object_sync())
+    live_keys = apply(sync, :live_keys, [prefix])
+    live_set = MapSet.new(live_keys)
+
+    prefix
+    |> stream_prefix()
+    |> Stream.reject(fn object -> MapSet.member?(live_set, object.key) end)
   end
 
   @doc """
@@ -74,6 +84,18 @@ defmodule ExObjectStore do
     with {:ok, _} <- ExAws.request(delete) do
       :ok
     end
+  end
+
+  @doc """
+  Delete all garage objects with matching prefix
+  """
+  @spec delete_garbage(prefix :: String.t(), opts :: [object_sync_opt()]) :: :ok | {:error, term()}
+  def delete_garbage(prefix \\ "", opts \\ []) do
+    prefix
+    |> stream_garbage(opts)
+    |> Stream.map(& &1.key)
+    |> Enum.to_list()
+    |> delete_keys()
   end
 
   @doc """
@@ -110,8 +132,11 @@ defmodule ExObjectStore do
     end
   end
 
-  @spec root_bucket() :: String.t()
-  def root_bucket do
+  defp root_bucket do
     Application.get_env(:ex_object_store, :root_bucket)
+  end
+
+  defp object_sync do
+    Application.get_env(:ex_object_store, :object_sync)
   end
 end
