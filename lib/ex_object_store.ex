@@ -28,12 +28,39 @@ defmodule ExObjectStore do
   defp object_name(folder, file_name), do: folder <> "/" <> file_name
 
   @doc """
+  Upload the file at path to the folder with name
+  """
+  @spec upload_object_from_file(
+          folder :: String.t(),
+          name :: String.t(),
+          path :: String.t(),
+          opts :: S3.put_object_opts()
+        ) ::
+          {:ok, String.t()} | {:error, term()}
+  def upload_object_from_file(folder, name, path, opts \\ []) do
+    with {:ok, file_contents} <- File.read(path) do
+      upload_object(folder, name, file_contents, opts)
+    end
+  end
+
+  @doc """
   Return a presigned url for the key
   """
   @spec presigned_url(key :: String.t(), opts :: S3.presigned_url_opts()) :: {:ok, binary()} | {:error, binary()}
   def presigned_url(key, opts \\ []) do
     config = ExAws.Config.new(:s3)
     ExAws.S3.presigned_url(config, :get, root_bucket(), key, opts)
+  end
+
+  @doc """
+  Download the contents of the object at key
+  """
+  def download_object(key) do
+    download = S3.get_object(root_bucket(), key)
+
+    with {:ok, %{body: body}} <- ExAws.request(download) do
+      {:ok, body}
+    end
   end
 
   @doc """
@@ -51,13 +78,15 @@ defmodule ExObjectStore do
   """
   @spec stream_garbage(prefix :: String.t(), opts :: [object_sync_opt()]) :: Enumerable.t()
   def stream_garbage(prefix \\ "", opts \\ []) do
-    sync = Keyword.get(opts, :object_sync, object_sync())
-    live_keys = apply(sync, :live_keys, [prefix])
-    live_set = MapSet.new(live_keys)
+    live_keys =
+      opts
+      |> Keyword.get(:object_sync, object_sync())
+      |> apply(:live_keys, [prefix])
+      |> MapSet.new()
 
     prefix
     |> stream_prefix()
-    |> Stream.reject(fn object -> MapSet.member?(live_set, object.key) end)
+    |> Stream.reject(fn object -> MapSet.member?(live_keys, object.key) end)
   end
 
   @doc """

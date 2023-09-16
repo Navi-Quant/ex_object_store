@@ -16,7 +16,17 @@ defmodule ExObjectStoreTest do
     end
 
     test "upload_object/4 returns ok with the key when successful" do
-      assert {:ok, "test/test.txt"} = ExObjectStore.upload_object("test", "test.txt", "test")
+      assert {:ok, "folder/test.txt"} = ExObjectStore.upload_object("folder", "test.txt", "test")
+      assert {:ok, "test"} = ExObjectStore.download_object("folder/test.txt")
+    end
+
+    @tag :tmp_dir
+    test "upload_object_from_file/4 returns ok with the key when successful", %{tmp_dir: tmp_dir} do
+      path = Path.join(tmp_dir, "test.txt")
+      File.write!(path, "test")
+
+      assert {:ok, "folder/test.txt"} = ExObjectStore.upload_object_from_file("folder", "test.txt", path)
+      assert {:ok, "test"} = ExObjectStore.download_object("folder/test.txt")
     end
 
     test "presigned_url/2 returns the presigned url for object with key" do
