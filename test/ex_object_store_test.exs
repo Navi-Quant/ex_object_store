@@ -20,6 +20,28 @@ defmodule ExObjectStoreTest do
       assert {:ok, "test"} = ExObjectStore.download_object("folder/test.txt")
     end
 
+    test "download_objects/1 returns ok with binary contents of zip" do
+      {:ok, key1} = ExObjectStore.upload_object("folder", "test.txt", "test")
+      {:ok, key2} = ExObjectStore.upload_object("folder", "test2.txt", "test2")
+
+      assert {:ok, zip_binary} = ExObjectStore.download_objects([key1, key2])
+      assert {:ok, files} = :zip.extract(zip_binary, [:memory])
+
+      file_map = for {name, binary} <- files, into: %{}, do: {IO.chardata_to_string(name), binary}
+      assert file_map["folder/test.txt"] == "test"
+      assert file_map["folder/test2.txt"] == "test2"
+
+      # with key tranform
+      assert {:ok, zip_binary} =
+               ExObjectStore.download_objects([key1, key2], key_transform: &ExObjectStore.strip_key/1)
+
+      assert {:ok, files} = :zip.extract(zip_binary, [:memory])
+
+      file_map = for {name, binary} <- files, into: %{}, do: {IO.chardata_to_string(name), binary}
+      assert file_map["test.txt"] == "test"
+      assert file_map["test2.txt"] == "test2"
+    end
+
     @tag :tmp_dir
     test "upload_object_from_file/4 returns ok with the key when successful", %{tmp_dir: tmp_dir} do
       path = Path.join(tmp_dir, "test.txt")

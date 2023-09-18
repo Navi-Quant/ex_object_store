@@ -5,7 +5,9 @@ defmodule ExObjectStore.ObjectSync do
   """
 
   @doc """
-  Return a list of all the "live" keys of objects that should be in the store
+  Return a list of all the "live" keys of objects that should be in the store.
+  For example you might have an ecto scheme that has a `key` field, this function
+  would query for all the keys in the db and return them.
   """
   @callback live_keys(prefix :: String.t()) :: [String.t()]
 end

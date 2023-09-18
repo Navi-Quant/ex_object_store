@@ -55,12 +55,83 @@ defmodule ExObjectStore do
   @doc """
   Download the contents of the object at key
   """
+  @spec download_object(key :: String.t()) :: {:ok, binary()} | {:error, term()}
   def download_object(key) do
     download = S3.get_object(root_bucket(), key)
 
     with {:ok, %{body: body}} <- ExAws.request(download) do
       {:ok, body}
     end
+  end
+
+  @doc """
+  Download a list of objects by key as a zip file, returning the zip
+  binary contents of the zip file.
+
+  ## Options
+    * `:key_transform` - a function that takes a key and returns a new key,
+      this is useful for stripping out the folder prefix from the key.
+      Defaults to `&Function.identity/1`.
+
+    * `:max_concurrency` - the maximum number of concurrent downloads to run.
+    * `:timeout` - the timeout for each download (in milliseconds).
+  """
+  @type download_objects_option ::
+          {:key_transform, (String.t() -> String.t())} | {:max_concurrency, pos_integer()} | {:timeout, pos_integer()}
+
+  @spec download_objects(keys :: [String.t()], opts :: [download_objects_option]) :: {:ok, binary()} | {:error, term()}
+  def download_objects(keys, opts \\ []) do
+    {key_transform, opts} = Keyword.pop(opts, :key_transform, &Function.identity/1)
+
+    with {:ok, objects} <- download_object_binaries(keys, opts) do
+      create_object_zip(objects, key_transform)
+    end
+  end
+
+  defp download_object_binaries(keys, opts) do
+    async_opts = opts ++ [on_timeout: :kill_task, zip_input_on_exit: true]
+
+    keys
+    |> Task.async_stream(&{&1, download_object(&1)}, async_opts)
+    |> Enum.reduce_while([], fn
+      {:ok, {key, {:ok, body}}}, acc ->
+        {:cont, [{key, body} | acc]}
+
+      {:ok, {key, {:error, error}}}, _acc ->
+        {:halt, {:error, {key, error}}}
+
+      {:exit, {key, :timeout}}, _acc ->
+        {:halt, {:error, {key, :timeout}}}
+    end)
+    |> case do
+      {:error, error} ->
+        {:error, error}
+
+      acc ->
+        {:ok, acc}
+    end
+  end
+
+  defp create_object_zip(objects, key_transform) do
+    objects =
+      for {key, body} <- objects do
+        key = key_transform.(key)
+        {String.to_charlist(key), body}
+      end
+
+    with {:ok, {~c"archive.zip", zip_binary}} <- :zip.create(~c"archive.zip", objects, [:memory]) do
+      {:ok, zip_binary}
+    end
+  end
+
+  @doc """
+  Helper to strip an object key down to its filename
+  """
+  @spec strip_key(key :: String.t()) :: String.t()
+  def strip_key(key) do
+    key
+    |> String.split("/")
+    |> List.last()
   end
 
   @doc """
@@ -75,6 +146,9 @@ defmodule ExObjectStore do
 
   @doc """
   Return a stream of all the objects that don't have a live key in the object sync
+
+  ## Options
+    * `:object_sync` - the object sync module to use, must implement `ExObjectStore.ObjectSync`
   """
   @spec stream_garbage(prefix :: String.t(), opts :: [object_sync_opt()]) :: Enumerable.t()
   def stream_garbage(prefix \\ "", opts \\ []) do
@@ -117,6 +191,9 @@ defmodule ExObjectStore do
 
   @doc """
   Delete all garage objects with matching prefix
+
+  ## Options
+    * `:object_sync` - the object sync module to use, must implement `ExObjectStore.ObjectSync`
   """
   @spec delete_garbage(prefix :: String.t(), opts :: [object_sync_opt()]) :: :ok | {:error, term()}
   def delete_garbage(prefix \\ "", opts \\ []) do
